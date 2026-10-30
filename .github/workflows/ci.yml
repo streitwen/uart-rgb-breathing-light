@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell scripts
+        shell: pwsh
+        run: |
+          $errors = @()
+          foreach ($file in Get-ChildItem -Path . -Filter *.ps1 -Recurse) {
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $file.FullName,
+                  [ref]$null,
+                  [ref]$errors
+              ) | Out-Null
+          }
+          if ($errors.Count -gt 0) {
+              $errors | Format-List
+              throw "PowerShell syntax validation failed."
+          }
+
+      - name: Test packet generation offline
+        shell: powershell
+        run: .\send_breath.ps1 -DryRun -Seconds 1 -Quiet
+
+      - name: Build C++ sender
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64
+          cmake --build build --config Release
+
+      - name: Test C++ sender offline
+        shell: powershell
+        run: .\build\Release\breath_sender.exe --dry-run --seconds 1 --quiet
